@@ -7,6 +7,7 @@ data = pd.read_csv('Global_YouTube_Statistics.csv', encoding='ISO-8859-1')
 data.drop('subscribers_for_last_30_days', axis=1, inplace=True)
 data = data.dropna()
 data.info()
+server = app.server
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
