@@ -1,0 +1,202 @@
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+import pandas as pd
+data = pd.read_csv('Global_YouTube_Statistics.csv', encoding='ISO-8859-1')
+data.drop('subscribers_for_last_30_days', axis=1, inplace=True)
+data = data.dropna()
+data.info()
+app = dash.Dash(__name__)
+
+app.layout = html.Div([
+    # Main container
+    html.Div([
+        # Left panel
+        html.Div([
+            html.H1("Let's Start!", className='title', style={'textAlign': 'left'}),
+            html.Label('Select the Country:'),
+            dcc.Dropdown(
+                id='Country',
+                value=['Australia'],
+                options=sorted(data['Country'].unique()),
+                multi=True,
+                clearable=False
+            ),
+            html.Br(),
+            html.Br(),
+            html.Label('Select the Category:'),
+            dcc.Dropdown(
+                id='category',
+                value=['Music'],
+                options=sorted(data['category'].unique()),
+                multi=True,
+                clearable=False
+            ),
+            html.Br(),
+            html.Br(),
+            html.Label('YouTuber Distribution Map:'),
+            dcc.Graph(id='distribution_map')
+        ], style={
+            'width': '30%', 
+            'padding': '10px' 
+        }),
+
+        # Right panel
+        html.Div([
+            html.H1('YouTube Dashboard', style={'textAlign': 'center'}),
+            # Line chart and scatter plot
+            html.Div([
+                # YouTubers Over Time line chart
+                html.Div([
+                    html.H4('Top YouTubers Over Time'),
+                    html.Label('Select the Category:'),
+                    dcc.Dropdown(data['category'].unique(), 
+                                 value='Music', 
+                                 id='selected_category'),
+                    dcc.Graph(id="line_graphic"),
+                ], style={'width': '45%', 'display': 'inline-block', 'padding': '10px'}),
+
+                # Scatter plot Earnings vs Rank
+                html.Div([
+                    html.H4('Earnings vs Rank for Different Category'),
+                    html.Label('Select the Category:'),
+                    dcc.Dropdown(data['category'].unique(),
+                                 value='Music',
+                                 id='selected_category_ranking'),
+                    dcc.Checklist(id='earning_type',
+                                  options=[
+                                      {"label": "Highest Earning", "value": "highest_earning"},
+                                      {"label": "Lowest Earning", "value": "lowest_earning"}],
+                                  value=["highest_earning", "lowest_earning"],  # 默认选中所有奖牌类型
+                                  labelStyle={'display': 'inline-block'}),
+                    dcc.Graph(id='scatter_plot')
+                ], style={'width': '45%', 'display': 'inline-block', 'padding': '10px'})
+            ], style={'display': 'flex', 'justifyContent': 'space-between'}),
+
+            # Top 5 YouTubers list and recommendations
+            html.Div([
+                html.H4('Top 5 YouTubers Information'),
+                html.Ul(id='youtuber_list')
+            ], style={'width': '100%', 'padding': '10px', 'textAlign': 'left'})
+        ], style={
+            'width': '70%', 
+            'padding': '20px', 
+            'backgroundColor': '#fff', 
+            'boxShadow': '2px 2px 12px #aaa'
+        })
+    ], style={'display': 'flex', 'alignItems': 'stretch'}),
+], style={'fontFamily': 'Arial'})
+
+
+
+# Update YouTuber Distribution Map
+@app.callback(
+    Output('distribution_map', 'figure'),
+    [Input('category', 'value'), Input('Country', 'value')]
+)
+def update_map(selected_category, selected_country):
+    # 过滤数据
+    filtered_data = data[(data['category'].isin(selected_category)) & (data['Country'].isin(selected_country))]
+
+    # 使用 scatter_geo 绘制地图
+    fig = px.scatter_geo(
+        filtered_data,
+        lat='Latitude',  # YouTuber的纬度
+        lon='Longitude',  # YouTuber的经度
+        size='subscribers',  # 根据订阅者数量调整圆圈大小
+        color='category',  # 不同类别使用不同颜色
+        hover_name='Youtuber',  # 悬停时显示YouTuber名字
+        projection="equirectangular",  # 使用等矩形投影
+        title="YouTuber Distribution"
+    )
+    fig.update_layout(
+    width=300,  # Adjust the width to fit in the left panel
+    height=500,  # Adjust the height to fit in the left panel
+    margin={"r": 0, "t": 0, "l": 0, "b": 50},  # Reduce bottom margin to move map upwards
+    title={
+    'y': 0,  # Adjust title position closer to the chart
+    'x': 0,  # Center title horizontally
+    'xanchor': 'center',
+    'yanchor': 'top',
+    'pad': {'b':0}  # Padding between title and chart, 'b' is for bottom padding
+    },
+    geo=dict(
+        showcountries=True,  # Show country borders
+        showcoastlines=True,  # Show coastlines
+        projection_scale=1,
+        lataxis=dict(range=[-60, 90]),  # Fixed latitude range to restrict up/down movement
+        lonaxis=dict(showgrid=True),  # Allow free longitude movement
+    ),
+    legend=dict(
+        orientation="h",  # Horizontal legend
+        yanchor="bottom",  # Positioning legend at the bottom
+        y=0,  # Move the legend slightly closer to the map
+        xanchor="right",
+        x=0.5,
+        font=dict(size=8),
+    )
+)
+    return fig
+
+
+
+# Line plot
+@app.callback(Output("line_graphic","figure"),
+              Input("selected_category","value")
+    )
+def update_graph(selected_category):
+    yearly_category_count = data.groupby(['created_year', 'category']).size().reset_index(name='count')
+    query = yearly_category_count['category'] == selected_category
+    filtered_df = yearly_category_count[query]
+    
+    fig = px.line(
+        data_frame = filtered_df,
+        x = 'created_year',
+        y = 'count')
+    
+    fig.update_layout(
+        width=400,
+        height=350)
+    
+    return fig
+
+
+# Scatter Plot
+@app.callback(
+    Output("scatter_plot", "figure"),
+    [Input("selected_category_ranking", "value"),
+     Input("earning_type", "value")])
+
+def update_scatter_plot(selected_category, selected_earning_types):
+    # 根据选定的 category 和 earning_type 筛选数据
+    filtered_df = data[data['category'] == selected_category]
+    
+    # 根据 earning_type 来筛选出要展示的列
+    earnings_columns = []
+    if 'highest_earning' in selected_earning_types:
+        earnings_columns.append('highest_earning')
+    if 'lowest_earning' in selected_earning_types:
+        earnings_columns.append('lowest_earning')
+    
+    # 重塑 DataFrame，以便绘制散点图时同时显示最高和最低收入
+    filtered_df = filtered_df.melt(id_vars=['rank', 'category'], value_vars=earnings_columns, 
+                                   var_name='earning_type', value_name='earning')
+    
+    # 使用 plotly 绘制散点图
+    fig = px.scatter(
+        filtered_df,
+        x='rank',  # 横轴为 rank
+        y='earning',  # 纵轴为 selected earning type
+        color='earning_type',  # 根据最高或最低收入区分颜色
+        title=f"Rank vs Earning for {selected_category}",
+        labels={'rank': 'Rank', 'earning': 'Earning'},  # 添加标签
+        hover_name='YouTuber',  # 悬停时显示 YouTuber 名字
+    )
+    
+    return fig
+
+
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
